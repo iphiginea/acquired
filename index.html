@@ -202,6 +202,8 @@ const state = {
   accessionFile: null,
   accessionFilePreview: null,
   accessionVisibility: "private",
+  publicObject: null,
+  publicObjectId: null,
 };
 
 function el(tag, attrs = {}, children = []) {
@@ -219,10 +221,31 @@ function el(tag, attrs = {}, children = []) {
   return e;
 }
 
+function routeToHash(route, params) {
+  if (route === "/object") return `#/object/${params.id}`;
+  if (route === "/edit") return `#/edit/${params.id}`;
+  if (route === "/view") return `#/view/${params.id}`;
+  if (route === "/") return "#/";
+  return `#${route}`;
+}
+
+function parseHash() {
+  const h = (window.location.hash || "").replace(/^#/, "");
+  const parts = h.split("/").filter(Boolean);
+  if (parts[0] === "view" && parts[1]) return { route: "/view", params: { id: parts[1] } };
+  if (parts[0] === "object" && parts[1]) return { route: "/object", params: { id: parts[1] } };
+  if (parts[0] === "edit" && parts[1]) return { route: "/edit", params: { id: parts[1] } };
+  if (parts[0] === "accession") return { route: "/accession", params: {} };
+  if (parts[0] === "auth") return { route: "/auth", params: {} };
+  if (parts[0] === "collection") return { route: "/collection", params: {} };
+  return { route: "/", params: {} };
+}
+
 function navigate(route, params = {}) {
   state.route = route;
   state.params = params;
   if (route === "/accession") { state.accessionVisibility = "private"; state.editVisibilityFor = null; }
+  window.location.hash = routeToHash(route, params);
   render();
 }
 
@@ -630,6 +653,69 @@ function openLightbox(url) {
   document.body.appendChild(overlay);
 }
 
+function copyShareLink(id) {
+  const url = `${window.location.origin}${window.location.pathname}#/view/${id}`;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(
+      () => alert("Share link copied:\n" + url),
+      () => prompt("Copy this link:", url)
+    );
+  } else {
+    prompt("Copy this link:", url);
+  }
+}
+
+async function fetchPublicObject(id) {
+  const { data, error } = await sb.from("objects")
+    .select("*, object_images(storage_path, position)")
+    .eq("id", id).eq("visibility", "public").maybeSingle();
+  state.publicObject = error ? null : data;
+  state.publicObjectId = id;
+  render();
+}
+
+function PublicObjectView() {
+  const id = state.params.id;
+  if (state.publicObjectId !== id) {
+    fetchPublicObject(id);
+    return el("div", { class: "loading" }, "Loading object…");
+  }
+  const o = state.publicObject;
+  if (!o) return el("div", { class: "loading" }, "This object isn't available — it may be private or no longer exist.");
+
+  const wrap = el("div", {});
+  const primary = (o.object_images || []).sort((a,b) => (a.position||0)-(b.position||0))[0];
+
+  wrap.appendChild(el("div", { class: "plate" }, [
+    el("span", { class: "acc-no" }, o.accession_number),
+    el("span", { class: "vis" }, "On view"),
+  ]));
+
+  if (primary) {
+    const imgUrl = imageUrl(primary.storage_path);
+    wrap.appendChild(el("div", { class: "obj-image", onclick: () => openLightbox(imgUrl) }, el("img", { src: imgUrl })));
+  }
+
+  wrap.appendChild(el("div", { class: "obj-title-block" }, [
+    el("h1", {}, o.title),
+    o.object_date || o.maker ? el("div", { class: "sub" }, [o.object_date, o.maker].filter(Boolean).join(" · ")) : null,
+  ]));
+
+  const dl = el("dl", { class: "record" });
+  [["Classification", o.classification], ["Materials", o.materials],
+   ["Place", o.place], ["Acquired", o.acquisition], ["Provenance", o.provenance]]
+    .forEach(([k, v]) => { dl.appendChild(el("dt", {}, k)); dl.appendChild(el("dd", {}, v || "")); });
+  wrap.appendChild(dl);
+
+  if (o.significance) {
+    wrap.appendChild(el("div", { class: "significance-block" }, [
+      el("h3", {}, "Significance"),
+      el("p", {}, o.significance),
+    ]));
+  }
+  return wrap;
+}
+
 function ObjectView() {
   const wrap = el("div", {});
   const o = state.objects.find(x => x.id === state.params.id);
@@ -647,6 +733,7 @@ function ObjectView() {
   wrap.appendChild(el("div", { class: "obj-actions" }, [
     el("button", { onclick: () => navigate("/edit", { id: o.id }) }, "Edit"),
     el("button", { class: "delete", onclick: () => deleteObject(o) }, "Delete"),
+    o.visibility === "public" ? el("button", { onclick: () => copyShareLink(o.id) }, "Copy share link") : null,
   ]));
 
   if (primary) {
@@ -696,6 +783,7 @@ async function render() {
   else if (state.route === "/accession") view = AccessionView();
   else if (state.route === "/object") view = ObjectView();
   else if (state.route === "/edit") view = EditView();
+  else if (state.route === "/view") view = PublicObjectView();
   else view = LandingView();
   main.appendChild(view);
   app.appendChild(main);
@@ -704,14 +792,25 @@ async function render() {
 /* ---------- boot ---------- */
 
 async function boot() {
+  const parsed = parseHash();
   if (configReady) {
     const { data } = await sb.auth.getSession();
     state.session = data.session;
     if (state.session) {
       await loadProfile();
       await loadObjects();
-      state.route = "/collection";
     }
+  }
+  if (parsed.route === "/view") {
+    state.route = "/view";
+    state.params = parsed.params;
+  } else if (state.session && ["/collection", "/accession", "/object", "/edit"].includes(parsed.route)) {
+    state.route = parsed.route;
+    state.params = parsed.params;
+  } else if (state.session) {
+    state.route = "/collection";
+  } else {
+    state.route = parsed.route === "/auth" ? "/auth" : "/";
   }
   render();
 }
