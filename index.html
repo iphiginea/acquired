@@ -218,9 +218,19 @@ function navigate(route, params = {}) {
 async function loadProfile() {
   if (!state.session) return;
   const { data } = await sb.from("profiles").select("*").eq("id", state.session.user.id).maybeSingle();
-  state.profile = data;
+  if (data) { state.profile = data; return; }
+  const meta = state.session.user.user_metadata || {};
+  const name = meta.display_name || state.session.user.email.split("@")[0];
+  const code = (meta.collection_code || name.replace(/[^A-Za-z]/g, "").slice(0, 2).toUpperCase() || "XX");
+  const { data: created } = await sb.from("profiles").insert({
+    id: state.session.user.id,
+    display_name: name,
+    collection_name: `The ${name} Collection`,
+    collection_code: code,
+    established_year: new Date().getFullYear(),
+  }).select().single();
+  state.profile = created;
 }
-
 async function loadObjects() {
   if (!state.session) return;
   const { data } = await sb.from("objects")
@@ -283,7 +293,10 @@ function AuthView() {
     state.loading = true; render();
     try {
       if (isSignup) {
-        const { data, error } = await sb.auth.signUp({ email: emailVal, password: passVal });
+        const { data, error } = await sb.auth.signUp({
+  email: emailVal, password: passVal,
+  options: { data: { display_name: nameVal, collection_code: codeVal } }
+});
         if (error) throw error;
         if (data.session) {
           state.session = data.session;
