@@ -131,6 +131,15 @@
   .file-drop{border:1px dashed var(--hairline-strong);padding:26px;text-align:center;font-size:0.82rem;opacity:0.65;}
   .file-drop.has-file{opacity:1;border-style:solid;}
   .file-drop img{max-width:100%;max-height:200px;display:block;margin:0 auto 10px;}
+  .crop-picker{margin-top:16px;}
+  .crop-picker .crop-label{font-size:0.78rem;opacity:0.6;margin-bottom:8px;}
+  .crop-box{
+    width:150px;height:150px;margin:0 auto;border:1px solid var(--hairline-strong);
+    background-size:cover;touch-action:none;cursor:grab;position:relative;
+  }
+  .crop-box::after{
+    content:"";position:absolute;inset:0;border:1px dashed rgba(244,241,233,0.6);pointer-events:none;
+  }
   .submit-row{padding:28px 0 0;}
   .submit-row .accno-preview{font-family:'IBM Plex Mono',monospace;font-size:0.75rem;opacity:0.5;margin-bottom:14px;}
 
@@ -204,6 +213,8 @@ const state = {
   accessionVisibility: "private",
   publicObject: null,
   publicObjectId: null,
+  editFocal: { x: 50, y: 50 },
+  editFocalFor: null,
 };
 
 function el(tag, attrs = {}, children = []) {
@@ -403,7 +414,9 @@ function CollectionView() {
   const grid = el("div", { class: "grid" });
   state.objects.forEach(o => {
     const primary = (o.object_images || []).sort((a,b) => (a.position||0)-(b.position||0))[0];
-    const thumb = el("div", { class: "thumb" }, primary ? el("img", { src: imageUrl(primary.storage_path) }) : el("span", { class: "noimg" }, "No image"));
+    const thumb = el("div", { class: "thumb" }, primary
+      ? el("img", { src: imageUrl(primary.storage_path), style: `object-position:${o.focal_x ?? 50}% ${o.focal_y ?? 50}%` })
+      : el("span", { class: "noimg" }, "No image"));
     grid.appendChild(el("div", { class: "obj-card", onclick: () => navigate("/object", { id: o.id }) }, [
       thumb,
       el("div", { class: "meta" }, [
@@ -417,15 +430,37 @@ function CollectionView() {
   return wrap;
 }
 
+function makeCropBox(imgUrl, focal) {
+  const box = el("div", { class: "crop-box",
+    style: `background-image:url(${imgUrl});background-position:${focal.x}% ${focal.y}%;` });
+  let dragging = false;
+  function setFromEvent(e) {
+    const rect = box.getBoundingClientRect();
+    let x = ((e.clientX - rect.left) / rect.width) * 100;
+    let y = ((e.clientY - rect.top) / rect.height) * 100;
+    x = Math.max(0, Math.min(100, x));
+    y = Math.max(0, Math.min(100, y));
+    focal.x = x; focal.y = y;
+    box.style.backgroundPosition = `${x}% ${y}%`;
+  }
+  box.addEventListener("pointerdown", e => { dragging = true; box.setPointerCapture(e.pointerId); setFromEvent(e); });
+  box.addEventListener("pointermove", e => { if (dragging) setFromEvent(e); });
+  box.addEventListener("pointerup", () => { dragging = false; });
+  box.addEventListener("pointercancel", () => { dragging = false; });
+  return box;
+}
+
 function AccessionView() {
   const f = { title:"", object_date:"", maker:"", classification:"", materials:"",
               place:"", acquisition:"", provenance:"", significance:"" };
+  const focal = { x: 50, y: 50 };
 
   const fileInput = el("input", { type: "file", accept: "image/*", style: "display:none",
     onchange: e => {
       const file = e.target.files[0];
       if (!file) return;
       state.accessionFile = file;
+      focal.x = 50; focal.y = 50;
       const reader = new FileReader();
       reader.onload = ev => { state.accessionFilePreview = ev.target.result; render(); };
       reader.readAsDataURL(file);
@@ -437,6 +472,11 @@ function AccessionView() {
       ? [el("img", { src: state.accessionFilePreview }), "Tap to change photograph"]
       : "Tap to upload a photograph"
   );
+
+  const cropPicker = state.accessionFilePreview ? el("div", { class: "crop-picker" }, [
+    el("div", { class: "crop-label" }, "Drag to set what shows in your collection grid"),
+    makeCropBox(state.accessionFilePreview, focal),
+  ]) : null;
 
   const submit = async () => {
     if (!f.title.trim()) { alert("Give the object a title first."); return; }
@@ -450,6 +490,7 @@ function AccessionView() {
         classification: f.classification, materials: f.materials, place: f.place,
         acquisition: f.acquisition, provenance: f.provenance, significance: f.significance,
         visibility: state.accessionVisibility,
+        focal_x: Math.round(focal.x), focal_y: Math.round(focal.y),
       }).select().single();
       if (error) throw error;
 
@@ -487,6 +528,7 @@ function AccessionView() {
       el("h3", {}, "Photograph"),
       fileInput,
       dropZone,
+      cropPicker,
     ]),
     el("div", { class: "form-section" }, [
       el("h3", {}, "Identification"),
@@ -552,6 +594,11 @@ function EditView() {
   };
   state.accessionVisibility = (state.editVisibilityFor === o.id) ? state.accessionVisibility : (o.visibility || "private");
   state.editVisibilityFor = o.id;
+  if (state.editFocalFor !== o.id) {
+    state.editFocal = { x: o.focal_x ?? 50, y: o.focal_y ?? 50 };
+    state.editFocalFor = o.id;
+  }
+  const focal = state.editFocal;
   const existingImage = (o.object_images || []).sort((a,b) => (a.position||0)-(b.position||0))[0];
   let newFile = null, newPreview = null;
 
@@ -560,6 +607,7 @@ function EditView() {
       const file = e.target.files[0];
       if (!file) return;
       newFile = file;
+      focal.x = 50; focal.y = 50;
       const reader = new FileReader();
       reader.onload = ev => { newPreview = ev.target.result; render(); };
       reader.readAsDataURL(file);
@@ -571,6 +619,12 @@ function EditView() {
     newPreview ? "New photograph selected" : "Tap to replace photograph",
   ]);
 
+  const cropSrc = newPreview || (existingImage ? imageUrl(existingImage.storage_path) : null);
+  const cropPicker = cropSrc ? el("div", { class: "crop-picker" }, [
+    el("div", { class: "crop-label" }, "Drag to set what shows in your collection grid"),
+    makeCropBox(cropSrc, focal),
+  ]) : null;
+
   const submit = async () => {
     if (!f.title.trim()) { alert("Give the object a title first."); return; }
     state.loading = true; render();
@@ -580,6 +634,7 @@ function EditView() {
         classification: f.classification, materials: f.materials, place: f.place,
         acquisition: f.acquisition, provenance: f.provenance, significance: f.significance,
         visibility: state.accessionVisibility,
+        focal_x: Math.round(focal.x), focal_y: Math.round(focal.y),
       }).eq("id", o.id);
       if (error) throw error;
 
@@ -613,7 +668,7 @@ function EditView() {
       el("span", { class: "back", onclick: () => navigate("/object", { id: o.id }) }, "← Back"),
       el("h1", { class: "display" }, "Edit object"),
     ]),
-    el("div", { class: "form-section" }, [ el("h3", {}, "Photograph"), fileInput, dropZone ]),
+    el("div", { class: "form-section" }, [ el("h3", {}, "Photograph"), fileInput, dropZone, cropPicker ]),
     el("div", { class: "form-section" }, [
       el("h3", {}, "Identification"),
       row("Object title", "title"), row("Date / period", "object_date"), row("Maker, if known", "maker"),
