@@ -141,8 +141,12 @@
   }
   .plate .acc-no{font-family:'IBM Plex Mono',monospace;font-size:0.85rem;color:var(--brass);letter-spacing:0.03em;}
   .plate .vis{font-family:'IBM Plex Mono',monospace;font-size:0.65rem;text-transform:uppercase;opacity:0.5;letter-spacing:0.08em;}
-  .obj-image{width:100%;aspect-ratio:4/3;background:#e7e2d5;margin-bottom:30px;overflow:hidden;}
-  .obj-image img{width:100%;height:100%;object-fit:cover;display:block;}
+  .obj-image{width:100%;max-height:70vh;background:#e7e2d5;margin-bottom:30px;overflow:hidden;display:flex;align-items:center;justify-content:center;}
+  .obj-image img{width:100%;height:100%;object-fit:contain;display:block;}
+  .obj-actions{display:flex;gap:10px;margin-bottom:20px;}
+  .obj-actions button{padding:8px 14px;border:1px solid var(--hairline-strong);background:transparent;font-family:'IBM Plex Mono',monospace;font-size:0.72rem;letter-spacing:0.05em;text-transform:uppercase;color:var(--ink);}
+  .obj-actions button:hover{border-color:var(--red);color:var(--red);}
+  .obj-actions button.delete:hover{border-color:var(--red);background:var(--red);color:var(--cream);}
   .obj-title-block{margin-bottom:36px;}
   .obj-title-block h1{font-size:clamp(1.7rem,5vw,2.4rem);}
   .obj-title-block .sub{font-family:'Fraunces',serif;font-style:italic;opacity:0.6;margin-top:6px;font-size:1rem;}
@@ -194,7 +198,6 @@ const state = {
 function el(tag, attrs = {}, children = []) {
   const e = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
-    if (v === null || v === undefined) continue;
     if (k === "class") e.className = v;
     else if (k.startsWith("on") && typeof v === "function") e.addEventListener(k.slice(2), v);
     else if (k === "html") e.innerHTML = v;
@@ -218,19 +221,9 @@ function navigate(route, params = {}) {
 async function loadProfile() {
   if (!state.session) return;
   const { data } = await sb.from("profiles").select("*").eq("id", state.session.user.id).maybeSingle();
-  if (data) { state.profile = data; return; }
-  const meta = state.session.user.user_metadata || {};
-  const name = meta.display_name || state.session.user.email.split("@")[0];
-  const code = (meta.collection_code || name.replace(/[^A-Za-z]/g, "").slice(0, 2).toUpperCase() || "XX");
-  const { data: created } = await sb.from("profiles").insert({
-    id: state.session.user.id,
-    display_name: name,
-    collection_name: `The ${name} Collection`,
-    collection_code: code,
-    established_year: new Date().getFullYear(),
-  }).select().single();
-  state.profile = created;
+  state.profile = data;
 }
+
 async function loadObjects() {
   if (!state.session) return;
   const { data } = await sb.from("objects")
@@ -293,10 +286,7 @@ function AuthView() {
     state.loading = true; render();
     try {
       if (isSignup) {
-        const { data, error } = await sb.auth.signUp({
-  email: emailVal, password: passVal,
-  options: { data: { display_name: nameVal, collection_code: codeVal } }
-});
+        const { data, error } = await sb.auth.signUp({ email: emailVal, password: passVal });
         if (error) throw error;
         if (data.session) {
           state.session = data.session;
@@ -500,6 +490,127 @@ function AccessionView() {
   ]);
 }
 
+async function deleteObject(o) {
+  if (!confirm(`Delete "${o.title}"? This can't be undone.`)) return;
+  try {
+    const images = o.object_images || [];
+    if (images.length) {
+      await sb.storage.from(IMAGE_BUCKET).remove(images.map(img => img.storage_path));
+    }
+    const { error } = await sb.from("objects").delete().eq("id", o.id);
+    if (error) throw error;
+    await loadObjects();
+    navigate("/collection");
+  } catch (e) {
+    alert("Couldn't delete: " + e.message);
+  }
+}
+
+function EditView() {
+  const o = state.objects.find(x => x.id === state.params.id);
+  if (!o) return el("div", { class: "loading" }, "Loading object…");
+
+  const f = {
+    title: o.title || "", object_date: o.object_date || "", maker: o.maker || "",
+    classification: o.classification || "", materials: o.materials || "",
+    place: o.place || "", acquisition: o.acquisition || "",
+    provenance: o.provenance || "", significance: o.significance || "",
+  };
+  state.accessionVisibility = o.visibility || "private";
+  const existingImage = (o.object_images || []).sort((a,b) => (a.position||0)-(b.position||0))[0];
+  let newFile = null, newPreview = null;
+
+  const fileInput = el("input", { type: "file", accept: "image/*", style: "display:none",
+    onchange: e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      newFile = file;
+      const reader = new FileReader();
+      reader.onload = ev => { newPreview = ev.target.result; render(); };
+      reader.readAsDataURL(file);
+    }
+  });
+
+  const dropZone = el("div", { class: "file-drop has-file", onclick: () => fileInput.click() }, [
+    el("img", { src: newPreview || (existingImage ? imageUrl(existingImage.storage_path) : "") }),
+    newPreview ? "New photograph selected" : "Tap to replace photograph",
+  ]);
+
+  const submit = async () => {
+    if (!f.title.trim()) { alert("Give the object a title first."); return; }
+    state.loading = true; render();
+    try {
+      const { error } = await sb.from("objects").update({
+        title: f.title, object_date: f.object_date, maker: f.maker,
+        classification: f.classification, materials: f.materials, place: f.place,
+        acquisition: f.acquisition, provenance: f.provenance, significance: f.significance,
+        visibility: state.accessionVisibility,
+      }).eq("id", o.id);
+      if (error) throw error;
+
+      if (newFile) {
+        const path = `${state.session.user.id}/${o.id}/01.jpg`;
+        const { error: upErr } = await sb.storage.from(IMAGE_BUCKET).upload(path, newFile, { upsert: true });
+        if (upErr) throw upErr;
+        if (!existingImage) {
+          await sb.from("object_images").insert({ object_id: o.id, storage_path: path, position: 0 });
+        }
+      }
+
+      await loadObjects();
+      navigate("/object", { id: o.id });
+    } catch (e) {
+      alert("Couldn't save: " + e.message);
+    }
+    state.loading = false;
+    render();
+  };
+
+  const row = (labelText, key, opts = {}) => el("div", { class: "form-row" }, [
+    el("label", {}, labelText),
+    opts.textarea
+      ? (() => { const t = el("textarea", { oninput: e => f[key] = e.target.value }); t.value = f[key]; return t; })()
+      : (() => { const i = el("input", { type: "text", oninput: e => f[key] = e.target.value }); i.value = f[key]; return i; })(),
+  ]);
+
+  return el("div", {}, [
+    el("div", { class: "form-head" }, [
+      el("span", { class: "back", onclick: () => navigate("/object", { id: o.id }) }, "← Back"),
+      el("h1", { class: "display" }, "Edit object"),
+    ]),
+    el("div", { class: "form-section" }, [ el("h3", {}, "Photograph"), fileInput, dropZone ]),
+    el("div", { class: "form-section" }, [
+      el("h3", {}, "Identification"),
+      row("Object title", "title"), row("Date / period", "object_date"), row("Maker, if known", "maker"),
+    ]),
+    el("div", { class: "form-section" }, [
+      el("h3", {}, "Classification"),
+      row("Object type", "classification"), row("Materials", "materials"),
+    ]),
+    el("div", { class: "form-section" }, [
+      el("h3", {}, "Provenance"),
+      row("Where did it come from?", "place"),
+      row("When and how did you acquire it?", "acquisition"),
+      row("Who owned it before you?", "provenance", { textarea: true }),
+    ]),
+    el("div", { class: "form-section" }, [
+      el("h3", {}, "Significance"),
+      row("Why does this belong in your collection?", "significance", { textarea: true }),
+    ]),
+    el("div", { class: "form-section" }, [
+      el("h3", {}, "Visibility"),
+      el("div", { class: "visibility-toggle" }, [
+        el("button", { class: state.accessionVisibility === "private" ? "active" : "", onclick: () => { state.accessionVisibility = "private"; render(); } }, "Private"),
+        el("button", { class: state.accessionVisibility === "public" ? "active" : "", onclick: () => { state.accessionVisibility = "public"; render(); } }, "Public"),
+      ]),
+    ]),
+    el("div", { class: "submit-row" }, [
+      el("button", { class: "btn-primary", disabled: state.loading ? "disabled" : null, onclick: submit },
+        state.loading ? "Saving…" : "Save changes"),
+    ]),
+  ]);
+}
+
 function ObjectView() {
   const wrap = el("div", {});
   const o = state.objects.find(x => x.id === state.params.id);
@@ -512,6 +623,11 @@ function ObjectView() {
   wrap.appendChild(el("div", { class: "plate" }, [
     el("span", { class: "acc-no" }, o.accession_number),
     el("span", { class: "vis" }, o.visibility),
+  ]));
+
+  wrap.appendChild(el("div", { class: "obj-actions" }, [
+    el("button", { onclick: () => navigate("/edit", { id: o.id }) }, "Edit"),
+    el("button", { class: "delete", onclick: () => deleteObject(o) }, "Delete"),
   ]));
 
   if (primary) {
@@ -559,6 +675,7 @@ async function render() {
   else if (state.route === "/collection") view = CollectionView();
   else if (state.route === "/accession") view = AccessionView();
   else if (state.route === "/object") view = ObjectView();
+  else if (state.route === "/edit") view = EditView();
   else view = LandingView();
   main.appendChild(view);
   app.appendChild(main);
