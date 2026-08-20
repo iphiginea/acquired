@@ -102,7 +102,7 @@
   .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:2px;background:var(--hairline);border:1px solid var(--hairline);}
   .obj-card{background:var(--cream);padding:0;position:relative;}
   .obj-card .thumb{width:100%;aspect-ratio:1;background:#e7e2d5;overflow:hidden;display:flex;align-items:center;justify-content:center;}
-  .obj-card .thumb img{width:100%;height:100%;object-fit:cover;display:block;}
+  .obj-card .thumb img{width:100%;height:100%;object-fit:contain;display:block;}
   .obj-card .thumb .noimg{font-family:'IBM Plex Mono',monospace;font-size:0.65rem;opacity:0.35;text-transform:uppercase;}
   .obj-card .meta{padding:10px 12px 14px;}
   .obj-card .acc-no{font-family:'IBM Plex Mono',monospace;font-size:0.65rem;letter-spacing:0.04em;color:var(--brass);}
@@ -222,6 +222,7 @@ function el(tag, attrs = {}, children = []) {
 function navigate(route, params = {}) {
   state.route = route;
   state.params = params;
+  if (route === "/accession") { state.accessionVisibility = "private"; state.editVisibilityFor = null; }
   render();
 }
 
@@ -525,7 +526,8 @@ function EditView() {
     place: o.place || "", acquisition: o.acquisition || "",
     provenance: o.provenance || "", significance: o.significance || "",
   };
-  state.accessionVisibility = o.visibility || "private";
+  state.accessionVisibility = (state.editVisibilityFor === o.id) ? state.accessionVisibility : (o.visibility || "private");
+  state.editVisibilityFor = o.id;
   const existingImage = (o.object_images || []).sort((a,b) => (a.position||0)-(b.position||0))[0];
   let newFile = null, newPreview = null;
 
