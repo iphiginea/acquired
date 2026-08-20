@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Acquired</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<style>
+  :root{
+    --red:#7B1420;
+    --red-deep:#5C0F18;
+    --cream:#F4F1E9;
+    --ink:#171717;
+    --brass:#A8874B;
+    --hairline:rgba(23,23,23,0.14);
+    --hairline-strong:rgba(23,23,23,0.28);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--cream);
+    color:var(--ink);
+    font-family:'IBM Plex Sans', sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  h1,h2,h3,.display{
+    font-family:'Fraunces', serif;
+    font-weight:500;
+    letter-spacing:-0.01em;
+    margin:0;
+  }
+  .mono{font-family:'IBM Plex Mono', monospace;}
+  a{color:inherit;text-decoration:none;}
+  button{font-family:inherit;cursor:pointer;}
+  input,textarea,select{font-family:inherit;font-size:1rem;}
+
+  /* ---- shell ---- */
+  #app{min-height:100vh;display:flex;flex-direction:column;}
+  header.topbar{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:18px 20px;border-bottom:1px solid var(--hairline);
+    position:sticky;top:0;background:var(--cream);z-index:10;
+  }
+  header.topbar .wordmark{font-family:'Fraunces',serif;font-weight:600;font-size:1.15rem;letter-spacing:0.02em;}
+  header.topbar .wordmark .dot{color:var(--red);}
+  header.topbar nav{display:flex;gap:16px;align-items:center;font-size:0.85rem;}
+  header.topbar nav span, header.topbar nav a{cursor:pointer;color:var(--ink);opacity:0.75;}
+  header.topbar nav a:hover{opacity:1;}
+  main{flex:1;width:100%;max-width:900px;margin:0 auto;padding:32px 20px 80px;}
+
+  /* ---- landing ---- */
+  .landing-hero{padding:14vh 0 8vh;text-align:center;}
+  .landing-hero .eyebrow{
+    font-family:'IBM Plex Mono',monospace;font-size:0.72rem;letter-spacing:0.14em;
+    text-transform:uppercase;color:var(--red);margin-bottom:22px;
+  }
+  .landing-hero h1{font-size:clamp(2.6rem,9vw,4.2rem);line-height:0.98;}
+  .landing-hero .tagline{font-family:'Fraunces',serif;font-style:italic;font-size:1.15rem;opacity:0.7;margin-top:14px;}
+  .landing-hero .cta{
+    display:inline-block;margin-top:44px;padding:14px 26px;border:1px solid var(--ink);
+    font-family:'IBM Plex Mono',monospace;font-size:0.8rem;letter-spacing:0.06em;text-transform:uppercase;
+  }
+  .landing-hero .cta:hover{background:var(--ink);color:var(--cream);}
+  .landing-note{
+    max-width:440px;margin:80px auto 0;text-align:center;font-size:0.95rem;line-height:1.6;opacity:0.75;
+    border-top:1px solid var(--hairline);padding-top:36px;
+  }
+
+  /* ---- auth ---- */
+  .auth-card{max-width:380px;margin:8vh auto 0;}
+  .auth-card h2{font-size:1.6rem;margin-bottom:6px;}
+  .auth-card .sub{font-size:0.85rem;opacity:0.6;margin-bottom:32px;}
+  .field{margin-bottom:18px;}
+  .field label{display:block;font-family:'IBM Plex Mono',monospace;font-size:0.7rem;letter-spacing:0.08em;text-transform:uppercase;opacity:0.6;margin-bottom:6px;}
+  .field input{width:100%;padding:11px 12px;border:1px solid var(--hairline-strong);background:transparent;color:var(--ink);}
+  .field input:focus{outline:none;border-color:var(--red);}
+  .btn-primary{
+    width:100%;padding:13px;background:var(--ink);color:var(--cream);border:none;
+    font-family:'IBM Plex Mono',monospace;font-size:0.8rem;letter-spacing:0.06em;text-transform:uppercase;margin-top:6px;
+  }
+  .btn-primary:hover{background:var(--red);}
+  .btn-primary:disabled{opacity:0.4;cursor:default;}
+  .toggle-auth{margin-top:20px;text-align:center;font-size:0.85rem;opacity:0.7;}
+  .toggle-auth span{color:var(--red);text-decoration:underline;cursor:pointer;}
+  .auth-error{font-size:0.82rem;color:var(--red);margin-top:10px;}
+
+  /* ---- collection ---- */
+  .collection-head{border-bottom:1px solid var(--hairline);padding-bottom:24px;margin-bottom:32px;}
+  .collection-head .estab{font-family:'IBM Plex Mono',monospace;font-size:0.72rem;letter-spacing:0.1em;text-transform:uppercase;opacity:0.55;margin-bottom:8px;}
+  .collection-head h1{font-size:clamp(1.8rem,5vw,2.6rem);text-transform:uppercase;letter-spacing:0.01em;}
+  .collection-head .count{font-family:'IBM Plex Mono',monospace;font-size:0.78rem;opacity:0.55;margin-top:10px;}
+  .search-row{display:flex;gap:10px;margin:22px 0 26px;}
+  .search-row input{flex:1;padding:10px 12px;border:1px solid var(--hairline-strong);background:transparent;}
+  .accession-btn{
+    display:block;width:100%;text-align:center;padding:16px;border:1px dashed var(--hairline-strong);
+    font-family:'IBM Plex Mono',monospace;font-size:0.78rem;letter-spacing:0.06em;text-transform:uppercase;
+    margin-bottom:36px;color:var(--red);
+  }
+  .accession-btn:hover{border-color:var(--red);background:rgba(123,20,32,0.04);}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:2px;background:var(--hairline);border:1px solid var(--hairline);}
+  .obj-card{background:var(--cream);padding:0;position:relative;}
+  .obj-card .thumb{width:100%;aspect-ratio:1;background:#e7e2d5;overflow:hidden;display:flex;align-items:center;justify-content:center;}
+  .obj-card .thumb img{width:100%;height:100%;object-fit:cover;display:block;}
+  .obj-card .thumb .noimg{font-family:'IBM Plex Mono',monospace;font-size:0.65rem;opacity:0.35;text-transform:uppercase;}
+  .obj-card .meta{padding:10px 12px 14px;}
+  .obj-card .acc-no{font-family:'IBM Plex Mono',monospace;font-size:0.65rem;letter-spacing:0.04em;color:var(--brass);}
+  .obj-card .title{font-family:'Fraunces',serif;font-size:0.95rem;line-height:1.2;margin-top:4px;}
+  .obj-card .date{font-size:0.72rem;opacity:0.5;margin-top:3px;}
+  .empty-state{text-align:center;padding:60px 20px;opacity:0.6;font-size:0.9rem;}
+
+  /* ---- accession form ---- */
+  .form-head{margin-bottom:30px;}
+  .form-head .back{font-family:'IBM Plex Mono',monospace;font-size:0.72rem;opacity:0.5;margin-bottom:16px;display:inline-block;}
+  .form-section{border-top:1px solid var(--hairline);padding:26px 0;}
+  .form-section:last-of-type{border-bottom:1px solid var(--hairline);}
+  .form-section h3{font-family:'IBM Plex Mono',monospace;font-size:0.72rem;letter-spacing:0.1em;text-transform:uppercase;color:var(--red);margin-bottom:18px;}
+  .form-row{margin-bottom:16px;}
+  .form-row label{display:block;font-size:0.82rem;opacity:0.65;margin-bottom:6px;}
+  .form-row input, .form-row textarea, .form-row select{
+    width:100%;padding:10px 12px;border:1px solid var(--hairline-strong);background:transparent;color:var(--ink);
+  }
+  .form-row textarea{resize:vertical;min-height:70px;}
+  .form-row input:focus, .form-row textarea:focus, .form-row select:focus{outline:none;border-color:var(--red);}
+  .visibility-toggle{display:flex;gap:10px;}
+  .visibility-toggle button{
+    flex:1;padding:10px;border:1px solid var(--hairline-strong);background:transparent;font-size:0.82rem;
+  }
+  .visibility-toggle button.active{background:var(--ink);color:var(--cream);border-color:var(--ink);}
+  .file-drop{border:1px dashed var(--hairline-strong);padding:26px;text-align:center;font-size:0.82rem;opacity:0.65;}
+  .file-drop.has-file{opacity:1;border-style:solid;}
+  .file-drop img{max-width:100%;max-height:200px;display:block;margin:0 auto 10px;}
+  .submit-row{padding:28px 0 0;}
+  .submit-row .accno-preview{font-family:'IBM Plex Mono',monospace;font-size:0.75rem;opacity:0.5;margin-bottom:14px;}
+
+  /* ---- object detail ---- */
+  .plate{
+    border:1px solid var(--ink);padding:18px 20px;margin-bottom:30px;
+    display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;
+  }
+  .plate .acc-no{font-family:'IBM Plex Mono',monospace;font-size:0.85rem;color:var(--brass);letter-spacing:0.03em;}
+  .plate .vis{font-family:'IBM Plex Mono',monospace;font-size:0.65rem;text-transform:uppercase;opacity:0.5;letter-spacing:0.08em;}
+  .obj-image{width:100%;aspect-ratio:4/3;background:#e7e2d5;margin-bottom:30px;overflow:hidden;}
+  .obj-image img{width:100%;height:100%;object-fit:cover;display:block;}
+  .obj-title-block{margin-bottom:36px;}
+  .obj-title-block h1{font-size:clamp(1.7rem,5vw,2.4rem);}
+  .obj-title-block .sub{font-family:'Fraunces',serif;font-style:italic;opacity:0.6;margin-top:6px;font-size:1rem;}
+  .record{display:grid;grid-template-columns:130px 1fr;gap:14px 20px;font-size:0.9rem;}
+  .record dt{font-family:'IBM Plex Mono',monospace;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.06em;opacity:0.5;padding-top:2px;}
+  .record dd{margin:0;padding-bottom:14px;border-bottom:1px solid var(--hairline);line-height:1.5;}
+  .record dd:empty::after{content:"—";opacity:0.3;}
+  .significance-block{margin-top:34px;padding-top:24px;border-top:1px solid var(--hairline);}
+  .significance-block h3{font-family:'IBM Plex Mono',monospace;font-size:0.7rem;letter-spacing:0.1em;text-transform:uppercase;color:var(--red);margin-bottom:12px;}
+  .significance-block p{font-family:'Fraunces',serif;font-size:1.05rem;line-height:1.6;}
+
+  .loading{text-align:center;padding:60px;opacity:0.5;font-family:'IBM Plex Mono',monospace;font-size:0.8rem;}
+  .config-warning{
+    background:var(--red);color:var(--cream);padding:14px 20px;font-size:0.85rem;text-align:center;
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+/* ============================================================
+   CONFIG — fill these in from your Supabase project settings
+   (Project Settings → API)
+   ============================================================ */
+const SUPABASE_URL = "YOUR_SUPABASE_PROJECT_URL";
+const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";
+const IMAGE_BUCKET = "object-images";
+
+/* ============================================================ */
+
+const configReady = !SUPABASE_URL.includes("YOUR_") && !SUPABASE_ANON_KEY.includes("YOUR_");
+const sb = configReady ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+
+const state = {
+  session: null,
+  profile: null,
+  objects: [],
+  route: "/",
+  params: {},
+  authMode: "signin", // or "signup"
+  authError: "",
+  loading: false,
+  accessionFile: null,
+  accessionFilePreview: null,
+  accessionVisibility: "private",
+};
+
+function el(tag, attrs = {}, children = []) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") e.className = v;
+    else if (k.startsWith("on") && typeof v === "function") e.addEventListener(k.slice(2), v);
+    else if (k === "html") e.innerHTML = v;
+    else e.setAttribute(k, v);
+  }
+  (Array.isArray(children) ? children : [children]).forEach(c => {
+    if (c === null || c === undefined) return;
+    e.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
+  });
+  return e;
+}
+
+function navigate(route, params = {}) {
+  state.route = route;
+  state.params = params;
+  render();
+}
+
+/* ---------- data helpers ---------- */
+
+async function loadProfile() {
+  if (!state.session) return;
+  const { data } = await sb.from("profiles").select("*").eq("id", state.session.user.id).maybeSingle();
+  state.profile = data;
+}
+
+async function loadObjects() {
+  if (!state.session) return;
+  const { data } = await sb.from("objects")
+    .select("*, object_images(storage_path, position)")
+    .eq("user_id", state.session.user.id)
+    .order("created_at", { ascending: false });
+  state.objects = data || [];
+}
+
+function imageUrl(path) {
+  if (!path) return null;
+  const { data } = sb.storage.from(IMAGE_BUCKET).getPublicUrl(path);
+  return data.publicUrl;
+}
+
+function nextAccessionNumber() {
+  const code = state.profile?.collection_code || "XX";
+  const year = new Date().getFullYear();
+  const countThisYear = state.objects.filter(o => o.accession_number?.includes(`.${year}.`)).length + 1;
+  return `${code}.${year}.${String(countThisYear).padStart(4, "0")}`;
+}
+
+/* ---------- views ---------- */
+
+function TopBar() {
+  const loggedIn = !!state.session;
+  return el("header", { class: "topbar" }, [
+    el("a", { class: "wordmark", onclick: () => navigate(loggedIn ? "/collection" : "/") },
+      ["ACQUIRED", el("span", { class: "dot" }, ".")]),
+    el("nav", {}, loggedIn ? [
+      el("span", { onclick: () => navigate("/collection") }, "Collection"),
+      el("span", { onclick: async () => { await sb.auth.signOut(); state.session = null; state.profile = null; navigate("/"); } }, "Sign out"),
+    ] : [
+      el("span", { onclick: () => navigate("/auth") }, "Sign in"),
+    ]),
+  ]);
+}
+
+function LandingView() {
+  return el("div", {}, [
+    el("div", { class: "landing-hero" }, [
+      el("div", { class: "eyebrow" }, "A permanent collection, one object at a time"),
+      el("h1", {}, "ACQUIRED"),
+      el("div", { class: "tagline" }, "Your life, in objects."),
+      el("a", { class: "cta", onclick: () => navigate("/auth", { mode: "signup" }) }, "Establish your collection →"),
+    ]),
+    el("div", { class: "landing-note" },
+      "We save photographs by the thousands. Acquired preserves the things themselves — and why they mattered."),
+  ]);
+}
+
+function AuthView() {
+  if (state.params.mode) state.authMode = state.params.mode;
+  const isSignup = state.authMode === "signup";
+  let emailVal = "", passVal = "", nameVal = "", codeVal = "";
+
+  const submit = async () => {
+    state.authError = "";
+    if (!configReady) { state.authError = "Supabase isn't configured yet — add your project URL and anon key at the top of the file."; render(); return; }
+    state.loading = true; render();
+    try {
+      if (isSignup) {
+        const { data, error } = await sb.auth.signUp({ email: emailVal, password: passVal });
+        if (error) throw error;
+        if (data.session) {
+          state.session = data.session;
+          await sb.from("profiles").insert({
+            id: data.session.user.id,
+            display_name: nameVal,
+            collection_name: `The ${nameVal} Collection`,
+            collection_code: (codeVal || nameVal.replace(/[^A-Za-z]/g, "").slice(0, 2).toUpperCase() || "XX"),
+            established_year: new Date().getFullYear(),
+          });
+          await loadProfile();
+          await loadObjects();
+          navigate("/collection");
+        } else {
+          state.authError = "Check your email to confirm your account, then sign in.";
+          state.authMode = "signin";
+        }
+      } else {
+        const { data, error } = await sb.auth.signInWithPassword({ email: emailVal, password: passVal });
+        if (error) throw error;
+        state.session = data.session;
+        await loadProfile();
+        await loadObjects();
+        navigate("/collection");
+      }
+    } catch (e) {
+      state.authError = e.message || "Something went wrong.";
+    }
+    state.loading = false;
+    render();
+  };
+
+  const card = el("div", { class: "auth-card" }, [
+    el("h2", {}, isSignup ? "Establish your collection" : "Sign in"),
+    el("div", { class: "sub" }, isSignup ? "Every collection begins somewhere." : "Welcome back."),
+    !configReady ? el("div", { class: "auth-error" }, "Supabase config missing — see top of index.html.") : null,
+    isSignup ? el("div", { class: "field" }, [
+      el("label", {}, "Your name"),
+      el("input", { type: "text", oninput: e => nameVal = e.target.value }),
+    ]) : null,
+    isSignup ? el("div", { class: "field" }, [
+      el("label", {}, "Collection code (2–3 letters, optional)"),
+      el("input", { type: "text", placeholder: "e.g. KH", maxlength: "3", oninput: e => codeVal = e.target.value }),
+    ]) : null,
+    el("div", { class: "field" }, [
+      el("label", {}, "Email"),
+      el("input", { type: "email", oninput: e => emailVal = e.target.value }),
+    ]),
+    el("div", { class: "field" }, [
+      el("label", {}, "Password"),
+      el("input", { type: "password", oninput: e => passVal = e.target.value }),
+    ]),
+    el("button", { class: "btn-primary", disabled: state.loading ? "disabled" : null, onclick: submit },
+      state.loading ? "Working…" : (isSignup ? "Create collection" : "Sign in")),
+    state.authError ? el("div", { class: "auth-error" }, state.authError) : null,
+    el("div", { class: "toggle-auth" }, isSignup
+      ? ["Already have a collection? ", el("span", { onclick: () => { state.authMode = "signin"; render(); } }, "Sign in")]
+      : ["No collection yet? ", el("span", { onclick: () => { state.authMode = "signup"; render(); } }, "Establish one")]),
+  ]);
+  return card;
+}
+
+function CollectionView() {
+  const wrap = el("div", {});
+  if (!state.profile) { wrap.appendChild(el("div", { class: "loading" }, "Loading collection…")); return wrap; }
+
+  wrap.appendChild(el("div", { class: "collection-head" }, [
+    el("div", { class: "estab" }, `Established ${state.profile.established_year}`),
+    el("h1", {}, state.profile.collection_name || "Untitled Collection"),
+    el("div", { class: "count" }, `${state.objects.length} object${state.objects.length === 1 ? "" : "s"}`),
+  ]));
+
+  wrap.appendChild(el("a", { class: "accession-btn", onclick: () => navigate("/accession") }, "+ Accession an object"));
+
+  if (state.objects.length === 0) {
+    wrap.appendChild(el("div", { class: "empty-state" }, "Nothing accessioned yet. Start with one object that matters."));
+    return wrap;
+  }
+
+  const grid = el("div", { class: "grid" });
+  state.objects.forEach(o => {
+    const primary = (o.object_images || []).sort((a,b) => (a.position||0)-(b.position||0))[0];
+    const thumb = el("div", { class: "thumb" }, primary ? el("img", { src: imageUrl(primary.storage_path) }) : el("span", { class: "noimg" }, "No image"));
+    grid.appendChild(el("div", { class: "obj-card", onclick: () => navigate("/object", { id: o.id }) }, [
+      thumb,
+      el("div", { class: "meta" }, [
+        el("div", { class: "acc-no" }, o.accession_number),
+        el("div", { class: "title" }, o.title),
+        el("div", { class: "date" }, o.object_date || ""),
+      ]),
+    ]));
+  });
+  wrap.appendChild(grid);
+  return wrap;
+}
+
+function AccessionView() {
+  const f = { title:"", object_date:"", maker:"", classification:"", materials:"",
+              place:"", acquisition:"", provenance:"", significance:"" };
+
+  const fileInput = el("input", { type: "file", accept: "image/*", style: "display:none",
+    onchange: e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      state.accessionFile = file;
+      const reader = new FileReader();
+      reader.onload = ev => { state.accessionFilePreview = ev.target.result; render(); };
+      reader.readAsDataURL(file);
+    }
+  });
+
+  const dropZone = el("div", { class: "file-drop" + (state.accessionFilePreview ? " has-file" : ""), onclick: () => fileInput.click() },
+    state.accessionFilePreview
+      ? [el("img", { src: state.accessionFilePreview }), "Tap to change photograph"]
+      : "Tap to upload a photograph"
+  );
+
+  const submit = async () => {
+    if (!f.title.trim()) { alert("Give the object a title first."); return; }
+    state.loading = true; render();
+    try {
+      const accession_number = nextAccessionNumber();
+      const { data: obj, error } = await sb.from("objects").insert({
+        user_id: state.session.user.id,
+        accession_number,
+        title: f.title, object_date: f.object_date, maker: f.maker,
+        classification: f.classification, materials: f.materials, place: f.place,
+        acquisition: f.acquisition, provenance: f.provenance, significance: f.significance,
+        visibility: state.accessionVisibility,
+      }).select().single();
+      if (error) throw error;
+
+      if (state.accessionFile) {
+        const path = `${state.session.user.id}/${obj.id}/01.jpg`;
+        const { error: upErr } = await sb.storage.from(IMAGE_BUCKET).upload(path, state.accessionFile, { upsert: true });
+        if (upErr) throw upErr;
+        await sb.from("object_images").insert({ object_id: obj.id, storage_path: path, position: 0 });
+      }
+
+      state.accessionFile = null;
+      state.accessionFilePreview = null;
+      await loadObjects();
+      navigate("/object", { id: obj.id });
+    } catch (e) {
+      alert("Couldn't save: " + e.message);
+    }
+    state.loading = false;
+    render();
+  };
+
+  const row = (labelText, key, opts = {}) => el("div", { class: "form-row" }, [
+    el("label", {}, labelText),
+    opts.textarea
+      ? el("textarea", { oninput: e => f[key] = e.target.value })
+      : el("input", { type: "text", oninput: e => f[key] = e.target.value }),
+  ]);
+
+  return el("div", {}, [
+    el("div", { class: "form-head" }, [
+      el("span", { class: "back", onclick: () => navigate("/collection") }, "← Collection"),
+      el("h1", { class: "display" }, "Accession an object"),
+    ]),
+    el("div", { class: "form-section" }, [
+      el("h3", {}, "Photograph"),
+      fileInput,
+      dropZone,
+    ]),
+    el("div", { class: "form-section" }, [
+      el("h3", {}, "Identification"),
+      row("Object title", "title"),
+      row("Date / period", "object_date"),
+      row("Maker, if known", "maker"),
+    ]),
+    el("div", { class: "form-section" }, [
+      el("h3", {}, "Classification"),
+      row("Object type", "classification"),
+      row("Materials", "materials"),
+    ]),
+    el("div", { class: "form-section" }, [
+      el("h3", {}, "Provenance"),
+      row("Where did it come from?", "place"),
+      row("When and how did you acquire it?", "acquisition"),
+      row("Who owned it before you?", "provenance", { textarea: true }),
+    ]),
+    el("div", { class: "form-section" }, [
+      el("h3", {}, "Significance"),
+      row("Why does this belong in your collection?", "significance", { textarea: true }),
+    ]),
+    el("div", { class: "form-section" }, [
+      el("h3", {}, "Visibility"),
+      el("div", { class: "visibility-toggle" }, [
+        el("button", { class: state.accessionVisibility === "private" ? "active" : "", onclick: () => { state.accessionVisibility = "private"; render(); } }, "Private"),
+        el("button", { class: state.accessionVisibility === "public" ? "active" : "", onclick: () => { state.accessionVisibility = "public"; render(); } }, "Public"),
+      ]),
+    ]),
+    el("div", { class: "submit-row" }, [
+      el("div", { class: "accno-preview mono" }, `Will be accessioned as ${nextAccessionNumber()}`),
+      el("button", { class: "btn-primary", disabled: state.loading ? "disabled" : null, onclick: submit },
+        state.loading ? "Adding…" : "Add to permanent collection"),
+    ]),
+  ]);
+}
+
+function ObjectView() {
+  const wrap = el("div", {});
+  const o = state.objects.find(x => x.id === state.params.id);
+  if (!o) { wrap.appendChild(el("div", { class: "loading" }, "Loading object…")); return wrap; }
+
+  const primary = (o.object_images || []).sort((a,b) => (a.position||0)-(b.position||0))[0];
+
+  wrap.appendChild(el("span", { class: "back mono", style: "font-size:0.72rem;opacity:0.5;display:inline-block;margin-bottom:20px;cursor:pointer;", onclick: () => navigate("/collection") }, "← Collection"));
+
+  wrap.appendChild(el("div", { class: "plate" }, [
+    el("span", { class: "acc-no" }, o.accession_number),
+    el("span", { class: "vis" }, o.visibility),
+  ]));
+
+  if (primary) {
+    wrap.appendChild(el("div", { class: "obj-image" }, el("img", { src: imageUrl(primary.storage_path) })));
+  }
+
+  wrap.appendChild(el("div", { class: "obj-title-block" }, [
+    el("h1", {}, o.title),
+    o.object_date || o.maker ? el("div", { class: "sub" }, [o.object_date, o.maker].filter(Boolean).join(" · ")) : null,
+  ]));
+
+  const dl = el("dl", { class: "record" });
+  const fields = [
+    ["Classification", o.classification], ["Materials", o.materials],
+    ["Place", o.place], ["Acquired", o.acquisition], ["Provenance", o.provenance],
+  ];
+  fields.forEach(([k, v]) => {
+    dl.appendChild(el("dt", {}, k));
+    dl.appendChild(el("dd", {}, v || ""));
+  });
+  wrap.appendChild(dl);
+
+  if (o.significance) {
+    wrap.appendChild(el("div", { class: "significance-block" }, [
+      el("h3", {}, "Significance"),
+      el("p", {}, o.significance),
+    ]));
+  }
+  return wrap;
+}
+
+/* ---------- render ---------- */
+
+async function render() {
+  const app = document.getElementById("app");
+  app.innerHTML = "";
+  if (!configReady) {
+    app.appendChild(el("div", { class: "config-warning" }, "Supabase isn't configured — add SUPABASE_URL and SUPABASE_ANON_KEY at the top of index.html."));
+  }
+  app.appendChild(TopBar());
+  const main = el("main", {});
+  let view;
+  if (state.route === "/") view = LandingView();
+  else if (state.route === "/auth") view = AuthView();
+  else if (state.route === "/collection") view = CollectionView();
+  else if (state.route === "/accession") view = AccessionView();
+  else if (state.route === "/object") view = ObjectView();
+  else view = LandingView();
+  main.appendChild(view);
+  app.appendChild(main);
+}
+
+/* ---------- boot ---------- */
+
+async function boot() {
+  if (configReady) {
+    const { data } = await sb.auth.getSession();
+    state.session = data.session;
+    if (state.session) {
+      await loadProfile();
+      await loadObjects();
+      state.route = "/collection";
+    }
+  }
+  render();
+}
+
+boot();
+</script>
+</body>
+</html>
