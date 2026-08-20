@@ -131,6 +131,13 @@
   .file-drop{border:1px dashed var(--hairline-strong);padding:26px;text-align:center;font-size:0.82rem;opacity:0.65;}
   .file-drop.has-file{opacity:1;border-style:solid;}
   .file-drop img{max-width:100%;max-height:200px;display:block;margin:0 auto 10px;}
+  .mini-btn{
+    display:block;margin:10px auto 0;padding:9px 14px;border:1px solid var(--hairline-strong);
+    background:transparent;font-family:'IBM Plex Mono',monospace;font-size:0.72rem;
+    letter-spacing:0.05em;text-transform:uppercase;color:var(--ink);
+  }
+  .mini-btn:hover{border-color:var(--red);color:var(--red);}
+  .mini-btn:disabled{opacity:0.4;}
   .crop-picker{margin-top:16px;}
   .crop-picker .crop-label{font-size:0.78rem;opacity:0.6;margin-bottom:8px;}
   .crop-box{
@@ -430,6 +437,12 @@ function CollectionView() {
   return wrap;
 }
 
+async function removeBgFromFile(file) {
+  const mod = await import("https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.7.0/dist/index.mjs");
+  const removeBackground = mod.default || mod.removeBackground;
+  return await removeBackground(file);
+}
+
 function makeCropBox(imgUrl, focal) {
   const box = el("div", { class: "crop-box",
     style: `background-image:url(${imgUrl});background-position:${focal.x}% ${focal.y}%;` });
@@ -473,10 +486,33 @@ function AccessionView() {
       : "Tap to upload a photograph"
   );
 
+  let cropBoxEl = null;
   const cropPicker = state.accessionFilePreview ? el("div", { class: "crop-picker" }, [
     el("div", { class: "crop-label" }, "Drag to set what shows in your collection grid"),
-    makeCropBox(state.accessionFilePreview, focal),
+    (cropBoxEl = makeCropBox(state.accessionFilePreview, focal)),
   ]) : null;
+
+  const bgButton = el("button", { class: "mini-btn", type: "button" }, "Remove background");
+  bgButton.addEventListener("click", async (ev) => {
+    ev.stopPropagation();
+    if (!state.accessionFile) { alert("Add a photo first."); return; }
+    bgButton.disabled = true;
+    bgButton.textContent = "Removing background… (first time can take a bit)";
+    try {
+      const outBlob = await removeBgFromFile(state.accessionFile);
+      state.accessionFile = new File([outBlob], "photo.png", { type: "image/png" });
+      const url = URL.createObjectURL(outBlob);
+      state.accessionFilePreview = url;
+      const imgEl = dropZone.querySelector("img");
+      if (imgEl) imgEl.src = url;
+      focal.x = 50; focal.y = 50;
+      if (cropBoxEl) { cropBoxEl.style.backgroundImage = `url(${url})`; cropBoxEl.style.backgroundPosition = "50% 50%"; }
+    } catch (e) {
+      alert("Background removal failed: " + e.message);
+    }
+    bgButton.disabled = false;
+    bgButton.textContent = "Remove background";
+  });
 
   const submit = async () => {
     if (!f.title.trim()) { alert("Give the object a title first."); return; }
@@ -528,6 +564,7 @@ function AccessionView() {
       el("h3", {}, "Photograph"),
       fileInput,
       dropZone,
+      state.accessionFilePreview ? bgButton : null,
       cropPicker,
     ]),
     el("div", { class: "form-section" }, [
@@ -620,10 +657,39 @@ function EditView() {
   ]);
 
   const cropSrc = newPreview || (existingImage ? imageUrl(existingImage.storage_path) : null);
+  let cropBoxEl = null;
   const cropPicker = cropSrc ? el("div", { class: "crop-picker" }, [
     el("div", { class: "crop-label" }, "Drag to set what shows in your collection grid"),
-    makeCropBox(cropSrc, focal),
+    (cropBoxEl = makeCropBox(cropSrc, focal)),
   ]) : null;
+
+  const bgButton = el("button", { class: "mini-btn", type: "button" }, "Remove background");
+  bgButton.addEventListener("click", async (ev) => {
+    ev.stopPropagation();
+    bgButton.disabled = true;
+    bgButton.textContent = "Removing background… (first time can take a bit)";
+    try {
+      let sourceFile = newFile;
+      if (!sourceFile && existingImage) {
+        const resp = await fetch(imageUrl(existingImage.storage_path));
+        const srcBlob = await resp.blob();
+        sourceFile = new File([srcBlob], "photo.jpg", { type: srcBlob.type || "image/jpeg" });
+      }
+      if (!sourceFile) { alert("Add a photo first."); bgButton.disabled = false; bgButton.textContent = "Remove background"; return; }
+      const outBlob = await removeBgFromFile(sourceFile);
+      newFile = new File([outBlob], "photo.png", { type: "image/png" });
+      const url = URL.createObjectURL(outBlob);
+      newPreview = url;
+      const imgEl = dropZone.querySelector("img");
+      if (imgEl) imgEl.src = url;
+      focal.x = 50; focal.y = 50;
+      if (cropBoxEl) { cropBoxEl.style.backgroundImage = `url(${url})`; cropBoxEl.style.backgroundPosition = "50% 50%"; }
+    } catch (e) {
+      alert("Background removal failed: " + e.message);
+    }
+    bgButton.disabled = false;
+    bgButton.textContent = "Remove background";
+  });
 
   const submit = async () => {
     if (!f.title.trim()) { alert("Give the object a title first."); return; }
@@ -668,7 +734,7 @@ function EditView() {
       el("span", { class: "back", onclick: () => navigate("/object", { id: o.id }) }, "← Back"),
       el("h1", { class: "display" }, "Edit object"),
     ]),
-    el("div", { class: "form-section" }, [ el("h3", {}, "Photograph"), fileInput, dropZone, cropPicker ]),
+    el("div", { class: "form-section" }, [ el("h3", {}, "Photograph"), fileInput, dropZone, cropSrc ? bgButton : null, cropPicker ]),
     el("div", { class: "form-section" }, [
       el("h3", {}, "Identification"),
       row("Object title", "title"), row("Date / period", "object_date"), row("Maker, if known", "maker"),
