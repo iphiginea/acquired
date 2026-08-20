@@ -141,8 +141,17 @@
   }
   .plate .acc-no{font-family:'IBM Plex Mono',monospace;font-size:0.85rem;color:var(--brass);letter-spacing:0.03em;}
   .plate .vis{font-family:'IBM Plex Mono',monospace;font-size:0.65rem;text-transform:uppercase;opacity:0.5;letter-spacing:0.08em;}
-  .obj-image{width:100%;max-height:70vh;background:#e7e2d5;margin-bottom:30px;overflow:hidden;display:flex;align-items:center;justify-content:center;}
+  .obj-image{width:100%;max-height:70vh;background:#e7e2d5;margin-bottom:30px;overflow:hidden;display:flex;align-items:center;justify-content:center;cursor:zoom-in;}
   .obj-image img{width:100%;height:100%;object-fit:contain;display:block;}
+  .lightbox{
+    position:fixed;inset:0;background:rgba(23,23,23,0.94);z-index:100;
+    display:flex;align-items:center;justify-content:center;cursor:zoom-out;padding:24px;
+  }
+  .lightbox img{max-width:100%;max-height:100%;object-fit:contain;display:block;}
+  .lightbox .close-hint{
+    position:absolute;top:18px;right:20px;font-family:'IBM Plex Mono',monospace;
+    font-size:0.72rem;letter-spacing:0.06em;text-transform:uppercase;color:var(--cream);opacity:0.7;
+  }
   .obj-actions{display:flex;gap:10px;margin-bottom:20px;}
   .obj-actions button{padding:8px 14px;border:1px solid var(--hairline-strong);background:transparent;font-family:'IBM Plex Mono',monospace;font-size:0.72rem;letter-spacing:0.05em;text-transform:uppercase;color:var(--ink);}
   .obj-actions button:hover{border-color:var(--red);color:var(--red);}
@@ -611,6 +620,14 @@ function EditView() {
   ]);
 }
 
+function openLightbox(url) {
+  const overlay = el("div", { class: "lightbox", onclick: () => overlay.remove() }, [
+    el("span", { class: "close-hint" }, "Tap to close"),
+    el("img", { src: url }),
+  ]);
+  document.body.appendChild(overlay);
+}
+
 function ObjectView() {
   const wrap = el("div", {});
   const o = state.objects.find(x => x.id === state.params.id);
@@ -631,7 +648,8 @@ function ObjectView() {
   ]));
 
   if (primary) {
-    wrap.appendChild(el("div", { class: "obj-image" }, el("img", { src: imageUrl(primary.storage_path) })));
+    const imgUrl = imageUrl(primary.storage_path);
+    wrap.appendChild(el("div", { class: "obj-image", onclick: () => openLightbox(imgUrl) }, el("img", { src: imgUrl })));
   }
 
   wrap.appendChild(el("div", { class: "obj-title-block" }, [
