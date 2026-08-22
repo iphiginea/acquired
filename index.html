@@ -200,6 +200,8 @@
 const SUPABASE_URL = "https://xziymryzdrtggdekaffp.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_DyBKTC5Id7HEb_Z88uvxmA_5U3wUg04";
 const IMAGE_BUCKET = "object-images";
+const SIGNED_URL_SECONDS = 60 * 60;
+const SIGNED_URL_REFRESH_MS = 55 * 60 * 1000;
 
 /* ============================================================ */
 
@@ -222,6 +224,8 @@ const state = {
   publicObjectId: null,
   editFocal: { x: 50, y: 50 },
   editFocalFor: null,
+  imageUrls: {},
+  imageUrlRequests: {},
 };
 
 function el(tag, attrs = {}, children = []) {
@@ -276,19 +280,62 @@ async function loadProfile() {
   state.profile = data;
 }
 
+async function cacheImageUrl(path) {
+  if (!path) return null;
+  const cached = state.imageUrls[path];
+  if (cached && cached.refreshAt > Date.now()) return cached.url;
+  if (state.imageUrlRequests[path]) return state.imageUrlRequests[path];
+
+  state.imageUrlRequests[path] = (async () => {
+    const { data, error } = await sb.storage.from(IMAGE_BUCKET).createSignedUrl(path, SIGNED_URL_SECONDS);
+    if (error) throw error;
+    const url = data?.signedUrl || null;
+    if (!url) throw new Error("Couldn't create a secure image link.");
+    state.imageUrls[path] = { url, refreshAt: Date.now() + SIGNED_URL_REFRESH_MS };
+    return url;
+  })();
+
+  try {
+    return await state.imageUrlRequests[path];
+  } finally {
+    delete state.imageUrlRequests[path];
+  }
+}
+
+async function cacheImageUrls(paths) {
+  const uniquePaths = [...new Set((paths || []).filter(Boolean))];
+  await Promise.all(uniquePaths.map(async path => {
+    try {
+      await cacheImageUrl(path);
+    } catch (e) {
+      console.error("Couldn't create secure image link", path, e);
+    }
+  }));
+}
+
+function imageUrl(path) {
+  if (!path) return null;
+  const cached = state.imageUrls[path];
+  if (cached && cached.refreshAt > Date.now()) return cached.url;
+  cacheImageUrl(path).then(() => render()).catch(e => console.error("Couldn't refresh secure image link", e));
+  return cached?.url || null;
+}
+
+function forgetImageUrl(path) {
+  if (!path) return;
+  delete state.imageUrls[path];
+  delete state.imageUrlRequests[path];
+}
+
 async function loadObjects() {
   if (!state.session) return;
   const { data } = await sb.from("objects")
     .select("*, object_images(storage_path, position)")
     .eq("user_id", state.session.user.id)
     .order("created_at", { ascending: false });
-  state.objects = data || [];
-}
-
-function imageUrl(path) {
-  if (!path) return null;
-  const { data } = sb.storage.from(IMAGE_BUCKET).getPublicUrl(path);
-  return data.publicUrl;
+  const objects = data || [];
+  await cacheImageUrls(objects.flatMap(o => (o.object_images || []).map(img => img.storage_path)));
+  state.objects = objects;
 }
 
 function nextAccessionNumber() {
@@ -307,7 +354,7 @@ function TopBar() {
       ["ACQUIRED", el("span", { class: "dot" }, ".")]),
     el("nav", {}, loggedIn ? [
       el("span", { onclick: () => navigate("/collection") }, "Collection"),
-      el("span", { onclick: async () => { await sb.auth.signOut(); state.session = null; state.profile = null; navigate("/"); } }, "Sign out"),
+      el("span", { onclick: async () => { await sb.auth.signOut(); state.session = null; state.profile = null; state.objects = []; state.imageUrls = {}; state.imageUrlRequests = {}; navigate("/"); } }, "Sign out"),
     ] : [
       el("span", { onclick: () => navigate("/auth") }, "Sign in"),
     ]),
@@ -534,6 +581,7 @@ function AccessionView() {
         const path = `${state.session.user.id}/${obj.id}/01.jpg`;
         const { error: upErr } = await sb.storage.from(IMAGE_BUCKET).upload(path, state.accessionFile, { upsert: true });
         if (upErr) throw upErr;
+        forgetImageUrl(path);
         await sb.from("object_images").insert({ object_id: obj.id, storage_path: path, position: 0 });
       }
 
@@ -608,7 +656,9 @@ async function deleteObject(o) {
   try {
     const images = o.object_images || [];
     if (images.length) {
-      await sb.storage.from(IMAGE_BUCKET).remove(images.map(img => img.storage_path));
+      const { error: storageError } = await sb.storage.from(IMAGE_BUCKET).remove(images.map(img => img.storage_path));
+      if (storageError) throw storageError;
+      images.forEach(img => forgetImageUrl(img.storage_path));
     }
     const { error } = await sb.from("objects").delete().eq("id", o.id);
     if (error) throw error;
@@ -708,6 +758,7 @@ function EditView() {
         const path = `${state.session.user.id}/${o.id}/01.jpg`;
         const { error: upErr } = await sb.storage.from(IMAGE_BUCKET).upload(path, newFile, { upsert: true });
         if (upErr) throw upErr;
+        forgetImageUrl(path);
         if (!existingImage) {
           await sb.from("object_images").insert({ object_id: o.id, storage_path: path, position: 0 });
         }
@@ -791,6 +842,9 @@ async function fetchPublicObject(id) {
   const { data, error } = await sb.from("objects")
     .select("*, object_images(storage_path, position)")
     .eq("id", id).eq("visibility", "public").maybeSingle();
+  if (!error && data) {
+    await cacheImageUrls((data.object_images || []).map(img => img.storage_path));
+  }
   state.publicObject = error ? null : data;
   state.publicObjectId = id;
   render();
@@ -815,7 +869,7 @@ function PublicObjectView() {
 
   if (primary) {
     const imgUrl = imageUrl(primary.storage_path);
-    wrap.appendChild(el("div", { class: "obj-image", onclick: () => openLightbox(imgUrl) }, el("img", { src: imgUrl })));
+    wrap.appendChild(el("div", { class: "obj-image", onclick: () => imgUrl && openLightbox(imgUrl) }, el("img", { src: imgUrl })));
   }
 
   wrap.appendChild(el("div", { class: "obj-title-block" }, [
@@ -860,7 +914,7 @@ function ObjectView() {
 
   if (primary) {
     const imgUrl = imageUrl(primary.storage_path);
-    wrap.appendChild(el("div", { class: "obj-image", onclick: () => openLightbox(imgUrl) }, el("img", { src: imgUrl })));
+    wrap.appendChild(el("div", { class: "obj-image", onclick: () => imgUrl && openLightbox(imgUrl) }, el("img", { src: imgUrl })));
   }
 
   wrap.appendChild(el("div", { class: "obj-title-block" }, [
