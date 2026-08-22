@@ -224,6 +224,9 @@ const state = {
   publicObjectId: null,
   editFocal: { x: 50, y: 50 },
   editFocalFor: null,
+  editFile: null,
+  editFilePreview: null,
+  editFileFor: null,
   imageUrls: {},
   imageUrlRequests: {},
 };
@@ -268,6 +271,7 @@ function navigate(route, params = {}) {
   state.route = route;
   state.params = params;
   if (route === "/accession") { state.accessionVisibility = "private"; state.editVisibilityFor = null; }
+  if (route !== "/edit") { state.editFile = null; state.editFilePreview = null; state.editFileFor = null; }
   window.location.hash = routeToHash(route, params);
   render();
 }
@@ -687,26 +691,30 @@ function EditView() {
   }
   const focal = state.editFocal;
   const existingImage = (o.object_images || []).sort((a,b) => (a.position||0)-(b.position||0))[0];
-  let newFile = null, newPreview = null;
+  if (state.editFileFor !== o.id) {
+    state.editFile = null;
+    state.editFilePreview = null;
+    state.editFileFor = o.id;
+  }
 
   const fileInput = el("input", { type: "file", accept: "image/*", style: "display:none",
     onchange: e => {
       const file = e.target.files[0];
       if (!file) return;
-      newFile = file;
+      state.editFile = file;
       focal.x = 50; focal.y = 50;
       const reader = new FileReader();
-      reader.onload = ev => { newPreview = ev.target.result; render(); };
+      reader.onload = ev => { state.editFilePreview = ev.target.result; render(); };
       reader.readAsDataURL(file);
     }
   });
 
   const dropZone = el("div", { class: "file-drop has-file", onclick: () => fileInput.click() }, [
-    el("img", { src: newPreview || (existingImage ? imageUrl(existingImage.storage_path) : "") }),
-    newPreview ? "New photograph selected" : "Tap to replace photograph",
+    el("img", { src: state.editFilePreview || (existingImage ? imageUrl(existingImage.storage_path) : "") }),
+    state.editFilePreview ? "New photograph selected" : "Tap to replace photograph",
   ]);
 
-  const cropSrc = newPreview || (existingImage ? imageUrl(existingImage.storage_path) : null);
+  const cropSrc = state.editFilePreview || (existingImage ? imageUrl(existingImage.storage_path) : null);
   let cropBoxEl = null;
   const cropPicker = cropSrc ? el("div", { class: "crop-picker" }, [
     el("div", { class: "crop-label" }, "Drag to set what shows in your collection grid"),
@@ -719,7 +727,7 @@ function EditView() {
     bgButton.disabled = true;
     bgButton.textContent = "Removing background… (first time can take a bit)";
     try {
-      let sourceFile = newFile;
+      let sourceFile = state.editFile;
       if (!sourceFile && existingImage) {
         const resp = await fetch(imageUrl(existingImage.storage_path));
         const srcBlob = await resp.blob();
@@ -727,9 +735,9 @@ function EditView() {
       }
       if (!sourceFile) { alert("Add a photo first."); bgButton.disabled = false; bgButton.textContent = "Remove background"; return; }
       const outBlob = await removeBgFromFile(sourceFile);
-      newFile = new File([outBlob], "photo.png", { type: "image/png" });
+      state.editFile = new File([outBlob], "photo.png", { type: "image/png" });
       const url = URL.createObjectURL(outBlob);
-      newPreview = url;
+      state.editFilePreview = url;
       const imgEl = dropZone.querySelector("img");
       if (imgEl) imgEl.src = url;
       focal.x = 50; focal.y = 50;
@@ -754,9 +762,9 @@ function EditView() {
       }).eq("id", o.id);
       if (error) throw error;
 
-      if (newFile) {
+      if (state.editFile) {
         const path = `${state.session.user.id}/${o.id}/01.jpg`;
-        const { error: upErr } = await sb.storage.from(IMAGE_BUCKET).upload(path, newFile, { upsert: true });
+        const { error: upErr } = await sb.storage.from(IMAGE_BUCKET).upload(path, state.editFile, { upsert: true });
         if (upErr) throw upErr;
         forgetImageUrl(path);
         if (!existingImage) {
@@ -764,6 +772,9 @@ function EditView() {
         }
       }
 
+      state.editFile = null;
+      state.editFilePreview = null;
+      state.editFileFor = null;
       await loadObjects();
       navigate("/object", { id: o.id });
     } catch (e) {
